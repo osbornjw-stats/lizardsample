@@ -147,4 +147,29 @@ if run_btn:
         
         # Histogram
         ax1.hist(full_pop['Weight_g'], bins=60, alpha=0.2, color='gray', label='Population', density=True)
-        ax1.hist(sample_df['Weight_g'], bins=40
+        ax1.hist(sample_df['Weight_g'], bins=40, alpha=0.7, color='blue', label='Sample', density=True)
+        ax1.axvline(true_mean, color='black', linestyle='--', label='True Mean')
+        ax1.axvline(sample_mean, color='red', linestyle='-', label='Sample Mean')
+        ax1.set_title("Weight Distribution")
+        ax1.legend()
+
+        # Bar Chart
+        counts = sample_df['Habitat'].value_counts().reindex(groups.keys(), fill_value=0)
+        # Colors: Beach(Sand), Jungle(Green), Wetlands(Teal), Caves(DarkGrey)
+        colors = ['#E6D7A3', '#32CD32', '#00CED1', '#696969']
+        
+        ax2.bar(counts.index, counts.values, color=colors)
+        ax2.set_title("Count by Habitat")
+        ax2.set_ylabel("Number of Lizards")
+        plt.setp(ax2.xaxis.get_majorticklabels(), rotation=15) # Tilt labels slightly
+        
+        st.pyplot(fig)
+
+        # --- DOWNLOAD BUTTON ---
+        csv = sample_df.to_csv(index=False).encode('utf-8')
+        st.download_button(
+            label="Download Data as CSV",
+            data=csv,
+            file_name='lizard_sample.csv',
+            mime='text/csv',
+        )
