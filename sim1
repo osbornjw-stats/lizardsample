@@ -1,0 +1,144 @@
+import streamlit as st
+import pandas as pd
+import numpy as np
+import matplotlib.pyplot as plt
+
+# --- 1. CONFIGURATION & POPULATION GENERATION ---
+st.set_page_config(page_title="Lizard Sampling Simulation", layout="wide")
+
+# Initialize the population in session state (so it stays constant as you interact)
+if 'full_pop' not in st.session_state:
+    np.random.seed(101)
+    groups = {
+        'Beach':    [50,  5,   4000], 
+        'Jungle':   [120, 15,  4000],
+        'Wetlands': [220, 30,  1500],
+        'Caves':    [350, 60,  500]  
+    }
+    
+    pop_list = []
+    for name, params in groups.items():
+        mu, sigma, n_count = params
+        weights = np.random.normal(mu, sigma, n_count)
+        
+        # Bias Logic
+        if name == 'Caves': catch_prob = 0.05 
+        elif name == 'Wetlands': catch_prob = 0.6 
+        else: catch_prob = 1.0
+        
+        pop_list.append(pd.DataFrame({
+            'ID': [f"{name[0]}_{i}" for i in range(n_count)],
+            'Habitat': name,
+            'Weight_g': weights,
+            'Catch_Prob': catch_prob 
+        }))
+    
+    st.session_state.full_pop = pd.concat(pop_list).reset_index(drop=True)
+
+full_pop = st.session_state.full_pop
+true_mean = full_pop['Weight_g'].mean()
+
+# --- 2. SIDEBAR CONTROLS ---
+st.sidebar.header("Sampling Parameters")
+
+# Checkboxes
+show_stratified = st.sidebar.checkbox("Enable Stratified Sampling")
+enable_bias = st.sidebar.checkbox("Enable 'Field Conditions' (Bias)")
+
+# Dynamic Inputs
+if not show_stratified:
+    # Simple Random Sampling
+    st.sidebar.subheader("Simple Random Sample")
+    n_total = st.sidebar.number_input("Total Sample Size", min_value=1, max_value=10000, value=100)
+    
+    # Store user choices in a dict to process later
+    user_requests = {'Simple': n_total}
+
+else:
+    # Stratified Sampling
+    st.sidebar.subheader("Stratified Quotas")
+    n_beach = st.sidebar.number_input("Beach (Max 4000)", 0, 4000, 25)
+    n_jungle = st.sidebar.number_input("Jungle (Max 4000)", 0, 4000, 25)
+    n_wetland = st.sidebar.number_input("Wetlands (Max 1500)", 0, 1500, 25)
+    n_caves = st.sidebar.number_input("Caves (Max 500)", 0, 500, 25)
+    
+    user_requests = {
+        'Beach': n_beach, 'Jungle': n_jungle, 
+        'Wetlands': n_wetland, 'Caves': n_caves
+    }
+
+run_button = st.sidebar.button("Draw Sample", type="primary")
+
+# --- 3. MAIN APP LOGIC ---
+st.title("🦎 Island Lizard Weight Study")
+st.markdown("Use the controls on the left to design your statistical sample.")
+
+if run_button:
+    sample_df = pd.DataFrame()
+    
+    # A. STRATIFIED LOGIC
+    if show_stratified:
+        sub_samples = []
+        for habitat, count in user_requests.items():
+            if count > 0:
+                sub_pop = full_pop[full_pop['Habitat'] == habitat]
+                # Stratified overrules bias (we force the quota)
+                sub_samples.append(sub_pop.sample(n=min(count, len(sub_pop))))
+        
+        if sub_samples:
+            sample_df = pd.concat(sub_samples)
+            st.success(f"Generated Stratified Sample (n={len(sample_df)})")
+            
+    # B. SIMPLE RANDOM LOGIC
+    else:
+        n = user_requests['Simple']
+        weights = 'Catch_Prob' if enable_bias else None
+        
+        sample_df = full_pop.sample(n=n, weights=weights)
+        
+        if enable_bias:
+            st.warning("⚠️ Field Conditions Active: Large lizards were harder to catch!")
+        else:
+            st.success(f"Generated Simple Random Sample (n={len(sample_df)})")
+
+    # --- 4. VISUALIZATION & STATS ---
+    if not sample_df.empty:
+        col1, col2 = st.columns([3, 1])
+        
+        with col1:
+            # Matplotlib Plot
+            fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(8, 8))
+            
+            # Histogram
+            ax1.hist(full_pop['Weight_g'], bins=60, alpha=0.2, color='gray', label='Population', density=True)
+            ax1.hist(sample_df['Weight_g'], bins=40, alpha=0.7, color='blue', label='Sample', density=True)
+            ax1.axvline(true_mean, color='black', linestyle='--', label='True Mean')
+            ax1.axvline(sample_df['Weight_g'].mean(), color='red', label='Sample Mean')
+            ax1.set_title("Weight Distribution")
+            ax1.legend()
+            
+            # Bar Chart
+            counts = sample_df['Habitat'].value_counts()
+            ax2.bar(counts.index, counts.values, color='green')
+            ax2.set_title("Count by Habitat")
+            
+            plt.tight_layout()
+            st.pyplot(fig)
+
+        with col2:
+            st.metric("True Pop Mean", f"{true_mean:.2f} g")
+            st.metric("Sample Mean", f"{sample_df['Weight_g'].mean():.2f} g")
+            st.metric("Sample Error", f"{sample_df['Weight_g'].mean() - true_mean:.2f} g")
+            
+            st.markdown("---")
+            st.write("### Download Data")
+            
+            # Convert to CSV for download
+            csv = sample_df.to_csv(index=False).encode('utf-8')
+            
+            st.download_button(
+                label="📥 Download Excel/CSV",
+                data=csv,
+                file_name=f"Lizard_Sample_n{len(sample_df)}.csv",
+                mime='text/csv',
+            )
